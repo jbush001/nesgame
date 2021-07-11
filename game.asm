@@ -1,6 +1,13 @@
+;
+; Memory map (2k of memory)
+; $000-$0ff  zero page, global variables
+; $100-$140  stack
+; $800  top of memory
+;
+
                     processor 6502
 
-STACK_SIZE          equ 128
+STACK_SIZE          equ 64
 FLOOR               equ 220
 MAX_FALL            equ 6
 JMP_VEC             equ $f5
@@ -32,7 +39,6 @@ JOYPAD2             dc.b 0
 
                     seg.u Globals
                     org $0
-stack               ds.b STACK_SIZE
 xpos                dc.b 0
 ypos                dc.b 0
 gravityVector       dc.b 0
@@ -48,11 +54,11 @@ scrollOffs          dc.b 0
                     endm
 
                     seg code
-                    org    $c000
-HandleReset            subroutine
+                    org $c000
+HandleReset         subroutine
 
                     ; set up stack
-                    ldx    #(stack + STACK_SIZE - 1)
+                    ldx #STACK_SIZE - 1
                     txs
 
                     ; Initialize variables
@@ -68,18 +74,16 @@ HandleReset            subroutine
                     ;
                     SetPPUAddress #$3f00
                     ldx #$0
-.loadPaletteEntry    lda palette,x
+.loadPaletteEntry   lda palette,x
                     sta PPUDATA
                     inx
-                    cpx    #20
+                    cpx #20
                     bne .loadPaletteEntry
-
-                    SetPPUAddress #$2020
 
                     ;
                     ; Fill in the background name table
                     ;
-
+                    SetPPUAddress #$2020
                     ldx #14
 .colLoop
 
@@ -103,7 +107,6 @@ HandleReset            subroutine
                     dex
                     bne .colLoop
 
-
                     ; Turn on PPU
                     SetPPUAddress #0
                     lda #%10000000
@@ -111,12 +114,18 @@ HandleReset            subroutine
                     lda #%00011110
                     sta PPUMASK
 
-.mainLoop            ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-                    ; Shift button values from controller into a
-                    ; global variable.
-                    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+.mainLoop           jsr ReadController
+                    jsr MovePlayer
+
+                    ; Wait for vblank
+.poll               lda PPUSTATUS
+                    bpl .poll
+
+                    jmp .mainLoop
+
+ReadController      subroutine
                     lda #1                     ; Latch button values
-                    sta    JOYPAD1
+                    sta JOYPAD1
                     lda #0
                     sta JOYPAD1
 
@@ -126,11 +135,10 @@ HandleReset            subroutine
                     ror buttons
                     dex
                     bne .readBit
+                    rts
 
-                    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-                    ; Update game state
-                    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-.checkA                lda #A_BUTTON
+MovePlayer          subroutine
+.checkA             lda #A_BUTTON
                     bit buttons
                     beq .checkLeft
 
@@ -177,17 +185,10 @@ HandleReset            subroutine
                     cmp #FLOOR
                     bcs .gravityDone
                     lda gravityVector
-                    cmp #MAX_FALL        ; Terminal velocity :)
+                    cmp #MAX_FALL        ; Terminal velocity
                     bpl .gravityDone
                     inc gravityVector    ; Fall a little faster
-.gravityDone
-
-
-                    ; Wait for vblank
-.poll               lda PPUSTATUS
-                    bpl .poll
-
-                    jmp .mainLoop
+.gravityDone        rts
 
 ;
 ;    When the VBlank interrupt occurs, update sprite positions
@@ -224,7 +225,6 @@ HandleVBlank        subroutine
                     sta PPUSCROLL
                     inc scrollOffs
                     rti
-
 
 HandleIRQ           subroutine
                     rti
